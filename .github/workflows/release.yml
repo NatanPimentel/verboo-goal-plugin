@@ -11,8 +11,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
@@ -22,8 +22,6 @@ jobs:
       - run: npm install --global @verboo/code@0.10.7
       - run: bun run check
       - run: git diff --exit-code -- dist
-      - run: verboo plugin validate .
-      - run: verboo plugin validate .claude-plugin/plugin.json
       - run: bun scripts/check-release-tag.ts
       - run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
         env:

@@ -9,11 +9,12 @@
   },
   "scripts": {
     "build": "bun scripts/build.ts",
-    "check": "bun run validate:versions && bun run typecheck && bun run lint && bun test && bun run build",
+    "check": "bun run validate:versions && bun run validate:plugin-offline && bun run typecheck && bun run lint && bun test && bun run build",
     "lint": "eslint src test scripts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "validate:plugin": "verboo plugin validate .",
+    "validate:plugin-offline": "bun scripts/validate-plugin-contract.ts",
     "validate:versions": "bun scripts/check-versions.ts"
   },
   "dependencies": {

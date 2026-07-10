@@ -19,8 +19,8 @@ jobs:
             verboo: latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
@@ -29,10 +29,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: npm install --global "@verboo/code@${{ matrix.verboo }}"
       - run: bun run validate:versions
+      # Verboo 0.10.7 gates every `plugin` subcommand behind account auth,
+      # including its otherwise-local validator. CI uses the checked-in
+      # offline contract validator; release preflight runs the official CLI
+      # from an authenticated developer machine.
+      - run: bun run validate:plugin-offline
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test
       - run: bun run build
       - run: git diff --exit-code -- dist
-      - run: verboo plugin validate .
-      - run: verboo plugin validate .claude-plugin/plugin.json

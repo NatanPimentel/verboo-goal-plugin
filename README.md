@@ -96,9 +96,12 @@ bun run typecheck
 bun run lint
 bun test
 bun run build
+bun run validate:plugin-offline
 verboo plugin validate .
 verboo plugin validate .claude-plugin/plugin.json
 ```
+
+The official Verboo 0.10.7 validator currently requires an authenticated CLI even though validation is local. CI therefore runs the checked-in offline contract validator; run the two official commands above as an authenticated release preflight.
 
 The generated `dist/mcp-server.mjs` and `dist/hook-runner.mjs` are committed so installed users need only the Node runtime already shipped with Verboo Code.
 
