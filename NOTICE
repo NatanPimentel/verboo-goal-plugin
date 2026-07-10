@@ -1,0 +1,9 @@
+verboo-goal-plugin reimplements goal-loop behavior inspired by:
+
+  opencode-goal-plugin
+  Copyright (c) 2026 Prevalentware
+  https://github.com/prevalentWare/opencode-goal-plugin
+  Licensed under the MIT License.
+
+This project uses Verboo Code's public plugin, hook, and MCP extension surfaces.
+It does not include or redistribute Verboo Code source code.

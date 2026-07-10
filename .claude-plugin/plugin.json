@@ -1,0 +1,75 @@
+{
+  "name": "goal",
+  "version": "0.1.0",
+  "description": "Persistent, budget-aware goals that keep Verboo Code working until completion or a real blocker.",
+  "author": {
+    "name": "Natan Pimentel",
+    "url": "https://github.com/NatanPimentel"
+  },
+  "homepage": "https://github.com/NatanPimentel/verboo-goal-plugin",
+  "repository": "https://github.com/NatanPimentel/verboo-goal-plugin",
+  "license": "MIT",
+  "keywords": ["goal", "loop", "autonomy", "productivity", "verboo"],
+  "userConfig": {
+    "auto_continue": {
+      "type": "boolean",
+      "title": "Auto-continue goals",
+      "description": "Keep an active goal running when the assistant would otherwise stop.",
+      "default": true
+    },
+    "defer_while_subagents_active": {
+      "type": "boolean",
+      "title": "Wait for subagents",
+      "description": "Defer the main goal loop while child agents are still active.",
+      "default": true
+    },
+    "max_auto_turns": {
+      "type": "number",
+      "title": "Maximum automatic turns",
+      "description": "Default maximum automatic continuations per goal.",
+      "default": 25,
+      "min": 1,
+      "max": 100
+    },
+    "default_token_budget": {
+      "type": "number",
+      "title": "Default token budget",
+      "description": "Total token budget per goal. Use 0 for unlimited.",
+      "default": 0,
+      "min": 0,
+      "max": 10000000
+    },
+    "max_goal_duration_seconds": {
+      "type": "number",
+      "title": "Maximum active duration",
+      "description": "Default active-time limit in seconds. Use 0 for unlimited.",
+      "default": 0,
+      "min": 0,
+      "max": 86400
+    },
+    "no_progress_token_threshold": {
+      "type": "number",
+      "title": "No-progress token threshold",
+      "description": "Assistant outputs below this token count are treated as low progress.",
+      "default": 50,
+      "min": 0,
+      "max": 1000
+    },
+    "max_no_progress_turns": {
+      "type": "number",
+      "title": "Maximum no-progress turns",
+      "description": "Pause after this many consecutive low-progress automatic turns.",
+      "default": 2,
+      "min": 1,
+      "max": 10
+    },
+    "max_hook_failures": {
+      "type": "number",
+      "title": "Maximum stop failures",
+      "description": "Pause after this many consecutive model or stop failures.",
+      "default": 3,
+      "min": 1,
+      "max": 10
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "verboo-goal",
+  "owner": {
+    "name": "Natan Pimentel"
+  },
+  "metadata": {
+    "description": "Goal-driven autonomous loops for Verboo Code."
+  },
+  "plugins": [
+    {
+      "name": "goal",
+      "description": "Persistent, budget-aware goals with safe automatic continuation.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/NatanPimentel/verboo-goal-plugin",
+      "strict": true
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "verboo-goal-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Persistent, budget-aware /goal loops for Verboo Code.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "check": "bun run validate:versions && bun run typecheck && bun run lint && bun test && bun run build",
+    "lint": "eslint src test scripts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "validate:plugin": "verboo plugin validate .",
+    "validate:versions": "bun scripts/check-versions.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/bun": "1.3.14",
+    "@types/node": "22.20.1",
+    "eslint": "10.6.0",
+    "globals": "17.7.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.63.0"
+  }
+}
