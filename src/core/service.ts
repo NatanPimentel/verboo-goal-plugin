@@ -727,12 +727,45 @@ export class GoalService {
     summary: string,
     outputTokens: number,
     now: string,
+    extra?: {
+      evidence?: string[]
+      facts?: string[]
+      contradictions?: string[]
+      verification?: string[]
+    },
   ): void {
     goal.checkpoints = [
       ...goal.checkpoints,
-      { at: now, summary: summarize(summary), outputTokens },
+      {
+        at: now,
+        summary: summarize(summary),
+        outputTokens,
+        ...(extra?.evidence?.length ? { evidence: extra.evidence } : {}),
+        ...(extra?.facts?.length ? { facts: extra.facts } : {}),
+        ...(extra?.contradictions?.length ? { contradictions: extra.contradictions } : {}),
+        ...(extra?.verification?.length ? { verification: extra.verification } : {}),
+      },
     ].slice(-8)
     goal.updatedAt = now
+  }
+
+  async reportCheckpoint(
+    sessionId: string,
+    summary: string,
+    extra?: {
+      evidence?: string[]
+      facts?: string[]
+      contradictions?: string[]
+      verification?: string[]
+    },
+  ): Promise<GoalView> {
+    const validSessionId = validateSessionId(sessionId)
+    return await this.store.update(validSessionId, state => {
+      const goal = state.current
+      if (!goal) throw new GoalError('NO_ACTIVE_GOAL', 'No active goal in this session.')
+      this.addCheckpoint(goal, summary, 0, this.nowIso(), extra)
+      return this.toView(goal, validSessionId)
+    })
   }
 
   private archiveGoal(
@@ -799,6 +832,7 @@ export class GoalService {
       usage: { ...goal.usage, elapsedMs: this.elapsedMs(goal) },
       createdAt: goal.createdAt,
       updatedAt: goal.updatedAt,
+      checkpoints: goal.checkpoints.map(c => ({ ...c })),
       activeSubagents: goal.activeSubagents.map(agent => ({ ...agent })),
     }
     if (goal.finishedAt !== undefined) view.finishedAt = goal.finishedAt

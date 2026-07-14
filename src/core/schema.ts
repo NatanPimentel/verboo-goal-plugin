@@ -39,6 +39,10 @@ const checkpointSchema = z
     at: z.string().datetime(),
     summary: z.string().max(280),
     outputTokens: z.number().int().nonnegative(),
+    evidence: z.array(z.string().min(1).max(280)).max(20).optional(),
+    facts: z.array(z.string().min(1).max(280)).max(20).optional(),
+    contradictions: z.array(z.string().min(1).max(280)).max(20).optional(),
+    verification: z.array(z.string().min(1).max(280)).max(20).optional(),
   })
   .strict()
 

@@ -46,6 +46,37 @@ describe('goal lifecycle', () => {
     )
   })
 
+  test('reports structured checkpoints with evidence, facts, contradictions, and verification', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session-test', {
+      objective: 'Demonstrate structured receipts',
+    })
+
+    const view = await context.service.reportCheckpoint('session-test', 'Scouted codebase', {
+      evidence: ['src/core/service.ts', 'src/core/store.ts'],
+      facts: ['Store uses file-based JSON persistence'],
+      contradictions: ['No existing receipt system found'],
+      verification: ['bun test passed'],
+    })
+
+    expect(view.objective).toBe('Demonstrate structured receipts')
+    expect(view.checkpoints).toHaveLength(1)
+    expect(view.checkpoints[0]?.summary).toBe('Scouted codebase')
+    expect(view.checkpoints[0]?.evidence).toEqual(['src/core/service.ts', 'src/core/store.ts'])
+    expect(view.checkpoints[0]?.facts).toEqual(['Store uses file-based JSON persistence'])
+    expect(view.checkpoints[0]?.verification).toEqual(['bun test passed'])
+
+    const stored = await context.service.getGoal('session-test')
+    expect(stored).not.toBeNull()
+    expect(stored!.checkpoints).toHaveLength(1)
+    expect(stored!.checkpoints[0]?.evidence?.[0]).toBe('src/core/service.ts')
+
+    // reportCheckpoint without structured fields still works
+    const simple = await context.service.reportCheckpoint('session-test', 'Simple step')
+    expect(simple.checkpoints).toHaveLength(2)
+    expect(simple.checkpoints[1]?.evidence).toBeUndefined()
+  })
+
   test('forces create and resume to stay paused in Plan mode', async () => {
     context = await createTestContext()
     await context.service.handleUserPrompt({

@@ -40,6 +40,21 @@ const finishSchema = sessionSchema.extend({
   blocker: z.string().max(4_000).optional(),
 })
 
+const checkpointField = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 280,
+} as const
+
+const checkpointSchema = z.object({
+  session_id: z.string().min(1).max(256),
+  summary: z.string().min(1).max(280),
+  evidence: z.array(z.string().min(1).max(280)).max(20).optional(),
+  facts: z.array(z.string().min(1).max(280)).max(20).optional(),
+  contradictions: z.array(z.string().min(1).max(280)).max(20).optional(),
+  verification: z.array(z.string().min(1).max(280)).max(20).optional(),
+})
+
 const objectSchema = (
   properties: Record<string, object>,
   required: string[],
@@ -160,6 +175,41 @@ const tools: Tool[] = [
     inputSchema: objectSchema({ session_id: sessionProperty }, ['session_id']),
     annotations: { destructiveHint: true, idempotentHint: true },
   },
+  {
+    name: 'add_checkpoint',
+    description: 'Report a structured checkpoint (receipt) for the current goal. Call this when a meaningful slice of work is completed — after a verified implementation, a resolved blocker, discovered facts, or any natural phase boundary.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        summary: { type: 'string', minLength: 1, maxLength: 280 },
+        evidence: {
+          type: 'array',
+          items: checkpointField,
+          maxItems: 20,
+          description: 'Concrete file paths, test output, or artifacts that prove the work.',
+        },
+        facts: {
+          type: 'array',
+          items: checkpointField,
+          maxItems: 20,
+          description: 'Facts discovered or confirmed during this phase.',
+        },
+        contradictions: {
+          type: 'array',
+          items: checkpointField,
+          maxItems: 20,
+          description: 'Contradictions found or assumptions invalidated.',
+        },
+        verification: {
+          type: 'array',
+          items: checkpointField,
+          maxItems: 20,
+          description: 'Commands or checks that were run and passed.',
+        },
+      },
+      ['session_id', 'summary'],
+    ),
+  },
 ]
 
 const success = (
@@ -262,6 +312,24 @@ const handleTool = async (name: string, raw: unknown) => {
         const input = parse(sessionSchema, raw)
         await service.clearGoal(input.session_id)
         return success('Goal cleared.', null)
+      }
+      case 'add_checkpoint': {
+        const input = parse(checkpointSchema, raw)
+        const goal = await service.reportCheckpoint(
+          input.session_id,
+          input.summary,
+          {
+            ...(input.evidence !== undefined ? { evidence: input.evidence } : {}),
+            ...(input.facts !== undefined ? { facts: input.facts } : {}),
+            ...(input.contradictions !== undefined
+              ? { contradictions: input.contradictions }
+              : {}),
+            ...(input.verification !== undefined
+              ? { verification: input.verification }
+              : {}),
+          },
+        )
+        return success(formatGoalView(goal), goal)
       }
       default:
         throw new GoalError('VALIDATION_ERROR', `Unknown goal tool: ${name}`)

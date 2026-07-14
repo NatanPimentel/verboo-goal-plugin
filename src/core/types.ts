@@ -41,6 +41,10 @@ export interface GoalCheckpoint {
   at: string
   summary: string
   outputTokens: number
+  evidence?: string[]
+  facts?: string[]
+  contradictions?: string[]
+  verification?: string[]
 }
 
 export interface ActiveSubagent {
@@ -117,6 +121,7 @@ export interface GoalView {
   blocker?: string
   stopReason?: string
   lastCheckpoint?: GoalCheckpoint
+  checkpoints: GoalCheckpoint[]
   activeSubagents: ActiveSubagent[]
 }
 

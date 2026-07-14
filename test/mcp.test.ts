@@ -44,6 +44,7 @@ describe('goal MCP server', () => {
       'update_goal_status',
       'update_goal',
       'clear_goal',
+      'add_checkpoint',
     ])
 
     const created = await client.callTool({
