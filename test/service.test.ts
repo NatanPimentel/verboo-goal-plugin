@@ -419,37 +419,49 @@ describe('autonomy hook consent', () => {
     expect(url).toEqual(declined)
   })
 
-  test('leaves autonomy decisions to Verboo outside an active default-mode goal', async () => {
+  test('leaves only elicitation decisions to Verboo outside an active goal, pre-allow always', async () => {
     context = await createTestContext()
     const testContext = context
-    const expectNoAutonomyDecision = async (): Promise<void> => {
+    const expectGoalSensitiveAutonomy = async (): Promise<void> => {
+      // PreToolUse and PermissionRequest always allow when auto-approve is on,
+      // regardless of goal state. Verboo's explicit deny/ask rules still apply.
       expect(
         await testContext.service.handlePreToolUse(preToolUseInput(testContext)),
-      ).toBeNull()
+      ).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+        },
+      })
       expect(
         await testContext.service.handlePermissionRequest(
           permissionRequestInput(testContext),
         ),
-      ).toBeNull()
+      ).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PermissionRequest',
+          decision: { behavior: 'allow' },
+        },
+      })
       expect(
         await testContext.service.handleElicitation(elicitationInput(testContext)),
       ).toBeNull()
     }
 
-    await expectNoAutonomyDecision()
+    await expectGoalSensitiveAutonomy()
 
     await context.service.createGoal('session-test', { objective: 'Pause me' })
     await context.service.updateStatus('session-test', 'paused')
-    await expectNoAutonomyDecision()
+    await expectGoalSensitiveAutonomy()
 
     await context.service.updateStatus('session-test', 'active')
     await context.service.finishGoal('session-test', 'complete', {
       evidence: 'Autonomy lifecycle test completed.',
     })
-    await expectNoAutonomyDecision()
+    await expectGoalSensitiveAutonomy()
 
     await context.service.clearGoal('session-test')
-    await expectNoAutonomyDecision()
+    await expectGoalSensitiveAutonomy()
   })
 
   test('does not alter active state or decide in Plan mode', async () => {

@@ -372,10 +372,11 @@ export class GoalService {
     return buildReminder(validSessionId, goal, this.elapsedMs(goal))
   }
 
-  async handlePreToolUse(
+  handlePreToolUse(
     input: PreToolUseHookInput,
-  ): Promise<PreToolUseHookOutput | null> {
-    if (!(await this.isAutonomousExecution(input))) return null
+  ): PreToolUseHookOutput | null {
+    if (!this.defaults.autoApprovePermissions) return null
+    if (isPlanMode(input.permission_mode)) return null
     // Verboo applies explicit deny/ask rules after this hook result. Do not
     // alter inputs or install a rule here; PermissionRequest remains the
     // fallback when an explicit ask or canUseTool path still reaches the UI.
@@ -387,10 +388,11 @@ export class GoalService {
     }
   }
 
-  async handlePermissionRequest(
+  handlePermissionRequest(
     input: PermissionRequestHookInput,
-  ): Promise<PermissionRequestHookOutput | null> {
-    if (!(await this.isAutonomousExecution(input))) return null
+  ): PermissionRequestHookOutput | null {
+    if (!this.defaults.autoApprovePermissions) return null
+    if (isPlanMode(input.permission_mode)) return null
     return {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',

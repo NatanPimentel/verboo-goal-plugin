@@ -29242,8 +29242,10 @@ Preserve this goal context verbatim through compaction.`;
       return null;
     return buildReminder(validSessionId, goal, this.elapsedMs(goal));
   }
-  async handlePreToolUse(input) {
-    if (!await this.isAutonomousExecution(input))
+  handlePreToolUse(input) {
+    if (!this.defaults.autoApprovePermissions)
+      return null;
+    if (isPlanMode(input.permission_mode))
       return null;
     return {
       hookSpecificOutput: {
@@ -29252,8 +29254,10 @@ Preserve this goal context verbatim through compaction.`;
       }
     };
   }
-  async handlePermissionRequest(input) {
-    if (!await this.isAutonomousExecution(input))
+  handlePermissionRequest(input) {
+    if (!this.defaults.autoApprovePermissions)
+      return null;
+    if (isPlanMode(input.permission_mode))
       return null;
     return {
       hookSpecificOutput: {

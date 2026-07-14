@@ -244,47 +244,22 @@ describe('bundled hook runner', () => {
     const preToolOutput = JSON.parse(preTool.stdout) as {
       hookSpecificOutput: {
         permissionDecision: string
-        permissionDecisionReason: string
-      }
-    }
-    const permissionOutput = JSON.parse(permission.stdout) as {
-      hookSpecificOutput: {
-        decision: { behavior: string; message: string }
       }
     }
     const elicitationOutput = JSON.parse(elicitation.stdout) as {
       hookSpecificOutput: { action: string }
       systemMessage: string
     }
-
+    // PreToolUse and PermissionRequest no longer read the store. They allow
+    // when auto-approve is on regardless of store state. Elicitation still
+    // reads the store and declines fail-closed when state is corrupt.
     expect(preTool.code).toBe(0)
-    expect(preToolOutput.hookSpecificOutput.permissionDecision).toBe('deny')
-    expect(preToolOutput.hookSpecificOutput.permissionDecisionReason).toContain(
-      'fail-closed',
-    )
-    expect(preToolOutput.hookSpecificOutput.permissionDecisionReason).toContain(
-      'safe alternative',
-    )
-    expect(preToolOutput.hookSpecificOutput.permissionDecisionReason).toContain(
-      'do not repeat the same request indefinitely',
-    )
-    expect(preToolOutput.hookSpecificOutput.permissionDecisionReason).not.toContain(
-      'repair',
-    )
+    expect(preToolOutput.hookSpecificOutput.permissionDecision).toBe('allow')
     expect(permission.code).toBe(0)
-    expect(permissionOutput.hookSpecificOutput.decision.behavior).toBe('deny')
-    expect(permissionOutput.hookSpecificOutput.decision.message).toContain(
-      'fail-closed',
-    )
-    expect(permissionOutput.hookSpecificOutput.decision.message).toContain(
-      'safe alternative',
-    )
-    expect(permissionOutput.hookSpecificOutput.decision.message).toContain(
-      'do not repeat the same request indefinitely',
-    )
-    expect(permissionOutput.hookSpecificOutput.decision.message).not.toContain(
-      'repair',
-    )
+    const permissionOutput = JSON.parse(permission.stdout) as {
+      hookSpecificOutput: { decision: { behavior: string } }
+    }
+    expect(permissionOutput.hookSpecificOutput.decision.behavior).toBe('allow')
     expect(elicitation.code).toBe(0)
     expect(elicitationOutput.hookSpecificOutput.action).toBe('decline')
     expect(elicitationOutput.systemMessage).toContain('fail-closed')
@@ -310,7 +285,14 @@ describe('bundled hook runner', () => {
       },
       { ...process.env, CLAUDE_PLUGIN_DATA: context.dataDir },
     )
-    expect(noGoal.stdout).toBe('')
+    expect(noGoal.code).toBe(0)
+    expect(noGoal.stderr).toBe('')
+    expect(JSON.parse(noGoal.stdout)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    })
 
     await context.service.createGoal('permission-session', {
       objective: 'Remain active in Plan mode',
@@ -383,7 +365,7 @@ describe('bundled hook runner', () => {
     )
   })
 
-  test('fails closed when the autonomy store is unavailable', async () => {
+  test('allows permission requests and fails closed for elicitation when the store is unavailable', async () => {
     context = await createTestContext()
     const unavailablePath = `${context.dataDir}/unavailable`
     await writeFile(unavailablePath, 'not a directory')
@@ -416,20 +398,17 @@ describe('bundled hook runner', () => {
     )
 
     const permissionOutput = JSON.parse(permission.stdout) as {
-      hookSpecificOutput: { decision: { behavior: string; message: string } }
+      hookSpecificOutput: { decision: { behavior: string } }
     }
     const elicitationOutput = JSON.parse(elicitation.stdout) as {
       hookSpecificOutput: { action: string }
       systemMessage: string
     }
+    // PermissionRequest no longer reads the store — it always allows when
+    // auto-approve is on. Elicitation still reads the store and declines
+    // fail-closed when the goal state cannot be verified.
     expect(permission.code).toBe(0)
-    expect(permissionOutput.hookSpecificOutput.decision.behavior).toBe('deny')
-    expect(permissionOutput.hookSpecificOutput.decision.message).toContain(
-      'safe alternative',
-    )
-    expect(permissionOutput.hookSpecificOutput.decision.message).not.toContain(
-      'repair',
-    )
+    expect(permissionOutput.hookSpecificOutput.decision.behavior).toBe('allow')
     expect(elicitation.code).toBe(0)
     expect(elicitationOutput.hookSpecificOutput.action).toBe('decline')
     expect(elicitationOutput.systemMessage).toContain('fail-closed')
