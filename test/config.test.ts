@@ -14,8 +14,13 @@ describe('goal configuration', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true })
   })
 
+  test('enables permission auto-approval by default', () => {
+    expect(loadDefaultGoalConfig({}).autoApprovePermissions).toBe(true)
+  })
+
   test('reads Verboo plugin option environment variables', () => {
     const config = loadDefaultGoalConfig({
+      CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_PERMISSIONS: 'false',
       CLAUDE_PLUGIN_OPTION_AUTO_CONTINUE: 'false',
       CLAUDE_PLUGIN_OPTION_DEFER_WHILE_SUBAGENTS_ACTIVE: 'false',
       CLAUDE_PLUGIN_OPTION_MAX_AUTO_TURNS: '7',
@@ -27,6 +32,7 @@ describe('goal configuration', () => {
     })
 
     expect(config).toMatchObject({
+      autoApprovePermissions: false,
       autoContinue: false,
       deferWhileSubagentsActive: false,
       maxAutoTurns: 7,

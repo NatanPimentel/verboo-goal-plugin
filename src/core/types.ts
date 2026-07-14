@@ -121,6 +121,7 @@ export interface GoalView {
 }
 
 export interface DefaultGoalConfig {
+  autoApprovePermissions: boolean
   autoContinue: boolean
   deferWhileSubagentsActive: boolean
   maxAutoTurns: number
@@ -156,4 +157,66 @@ export interface StopHookOutput {
   systemMessage?: string
   continue?: boolean
   stopReason?: string
+}
+
+export interface PreToolUseHookInput {
+  session_id: string
+  transcript_path: string
+  cwd: string
+  permission_mode?: string
+  hook_event_name: 'PreToolUse'
+  tool_name: string
+  tool_input: unknown
+  tool_use_id: string
+}
+
+export interface PreToolUseHookOutput {
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse'
+    permissionDecision: 'allow' | 'deny'
+    permissionDecisionReason?: string
+  }
+}
+
+export interface PermissionRequestHookInput {
+  session_id: string
+  transcript_path: string
+  cwd: string
+  permission_mode?: string
+  hook_event_name: 'PermissionRequest'
+  tool_name: string
+  tool_input: unknown
+  permission_suggestions?: unknown
+}
+
+export type PermissionRequestDecision =
+  | { behavior: 'allow' }
+  | { behavior: 'deny'; message: string; interrupt?: boolean }
+
+export interface PermissionRequestHookOutput {
+  hookSpecificOutput: {
+    hookEventName: 'PermissionRequest'
+    decision: PermissionRequestDecision
+  }
+}
+
+export interface ElicitationHookInput {
+  session_id: string
+  transcript_path: string
+  cwd: string
+  permission_mode?: string
+  hook_event_name: 'Elicitation'
+  mcp_server_name: string
+  message: string
+  mode?: 'form' | 'url'
+  url?: string
+  elicitation_id?: string
+  requested_schema?: Record<string, unknown>
+}
+
+export interface ElicitationHookOutput {
+  hookSpecificOutput: {
+    hookEventName: 'Elicitation'
+    action: 'decline'
+  }
 }

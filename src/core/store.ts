@@ -81,6 +81,21 @@ export class GoalStore {
     return this.readUnlocked(sessionId)
   }
 
+  /**
+   * Read an existing session for latency-sensitive autonomy hooks.
+   *
+   * This deliberately does not create directories, acquire a lock, chmod
+   * anything, or rewrite the state. Lifecycle handlers remain responsible for
+   * persistence; permission and elicitation hooks only need a snapshot.
+   */
+  async readForAutonomy(sessionId: string): Promise<SessionState | null> {
+    const dataDirectory = await this.autonomyDirectory(this.dataDir)
+    if (!dataDirectory) return null
+    const goalsDirectory = await this.autonomyDirectory(this.goalsDir)
+    if (!goalsDirectory) return null
+    return this.readUnlocked(sessionId)
+  }
+
   async update<T>(
     sessionId: string,
     updater: (state: SessionState) => T | Promise<T>,
@@ -103,6 +118,26 @@ export class GoalStore {
     await mkdir(this.goalsDir, { recursive: true, mode: 0o700 })
     await bestEffortChmod(this.dataDir, 0o700)
     await bestEffortChmod(this.goalsDir, 0o700)
+  }
+
+  /**
+   * A missing directory simply means this session has no persisted state yet.
+   * A path that exists but is not a directory (or cannot be inspected) is an
+   * unavailable store and must reach the hook's fail-closed path.
+   */
+  private async autonomyDirectory(path: string): Promise<boolean> {
+    let details: Awaited<ReturnType<typeof stat>>
+    try {
+      details = await stat(path)
+    } catch (error) {
+      if (isMissing(error)) return false
+      throw error
+    }
+    if (details.isDirectory()) return true
+    throw new GoalError(
+      'STATE_UNAVAILABLE',
+      `Goal state directory is unavailable: ${path}`,
+    )
   }
 
   private async readUnlocked(sessionId: string): Promise<SessionState | null> {

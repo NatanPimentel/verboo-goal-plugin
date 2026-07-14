@@ -7,6 +7,7 @@ import type { DefaultGoalConfig } from './types.js'
 
 const defaultsSchema = z
   .object({
+    autoApprovePermissions: z.boolean(),
     autoContinue: z.boolean(),
     deferWhileSubagentsActive: z.boolean(),
     maxAutoTurns: z.number().int().min(1).max(100),

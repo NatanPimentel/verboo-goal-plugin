@@ -1,5 +1,5 @@
 {
-  "description": "Persist goals, preserve them across compaction, and continue active work safely.",
+  "description": "Persist goals, preserve them across compaction, and keep active work moving safely.",
   "hooks": {
     "Stop": [
       {
@@ -90,6 +90,39 @@
       }
     ],
     "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook-runner.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook-runner.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook-runner.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
       {
         "hooks": [
           {

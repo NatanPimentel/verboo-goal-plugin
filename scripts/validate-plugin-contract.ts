@@ -101,6 +101,9 @@ const hooksSchema = z
         PostCompact: event,
         SubagentStart: event,
         SubagentStop: event,
+        PermissionRequest: event,
+        PreToolUse: event,
+        Elicitation: event,
       })
       .strict(),
   })

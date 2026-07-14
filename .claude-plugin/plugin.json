@@ -11,6 +11,12 @@
   "license": "MIT",
   "keywords": ["goal", "loop", "autonomy", "productivity", "verboo"],
   "userConfig": {
+    "auto_approve_permissions": {
+      "type": "boolean",
+      "title": "Auto-approve permissions during active goals",
+      "description": "Allow autonomous tool execution and decline MCP elicitation only while an active /goal is running. Disable to keep Verboo's normal permission and elicitation flow.",
+      "default": true
+    },
     "auto_continue": {
       "type": "boolean",
       "title": "Auto-continue goals",

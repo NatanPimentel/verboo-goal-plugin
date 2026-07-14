@@ -19,8 +19,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: npm install --global @verboo/code@0.10.7
-      - run: bun run check
+      - run: npm install --global @verboo/code@0.12.0
+      - run: bun run validate:versions
+      - run: bun run validate:plugin-offline
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run build
+      - run: bun test
       - run: git diff --exit-code -- dist
       - run: bun scripts/check-release-tag.ts
       - run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag

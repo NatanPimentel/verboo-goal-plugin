@@ -37,20 +37,66 @@ const optionalString = (
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-const writeJson = (value: Record<string, unknown>): void => {
+const writeJson = (value: object): void => {
   process.stdout.write(`${JSON.stringify(value)}\n`)
 }
+
+const isAutonomyEvent = (event: string): boolean =>
+  event === 'PreToolUse' ||
+  event === 'PermissionRequest' ||
+  event === 'Elicitation'
+
+const isPlanMode = (mode: string | undefined): boolean =>
+  mode?.toLowerCase() === 'plan'
+
+const failClosedGuidance = (kind: string, code: string): string =>
+  `${kind} was declined fail-closed because the goal state could not be verified (${code}). Try a safe alternative or another available path; do not repeat the same request indefinitely. Request user input only if a genuine external dependency makes further progress impossible.`
+
+const preToolUseDeny = (message: string): Record<string, unknown> => ({
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: message,
+  },
+})
+
+const permissionRequestDeny = (message: string): Record<string, unknown> => ({
+  hookSpecificOutput: {
+    hookEventName: 'PermissionRequest',
+    decision: {
+      behavior: 'deny',
+      message,
+    },
+  },
+})
+
+const elicitationDecline = (message?: string): Record<string, unknown> => ({
+  ...(message !== undefined ? { systemMessage: message } : {}),
+  hookSpecificOutput: {
+    hookEventName: 'Elicitation',
+    action: 'decline',
+  },
+})
 
 const main = async (): Promise<void> => {
   const input = await readInput()
   const event = requiredString(input, 'hook_event_name')
   currentEvent = event
-  const sessionId = requiredString(input, 'session_id')
-  const transcriptPath = requiredString(input, 'transcript_path')
   const dataDir =
     process.env.CLAUDE_PLUGIN_DATA ?? process.env.GOAL_PLUGIN_DATA ?? ''
   const defaults = loadDefaultGoalConfig()
-  await savePersistedGoalConfig(dataDir, defaults)
+  if (
+    isAutonomyEvent(event) &&
+    (!defaults.autoApprovePermissions ||
+      isPlanMode(optionalString(input, 'permission_mode')))
+  ) {
+    return
+  }
+  const sessionId = requiredString(input, 'session_id')
+  const transcriptPath = requiredString(input, 'transcript_path')
+  if (event === 'UserPromptSubmit' || event === 'SessionStart') {
+    await savePersistedGoalConfig(dataDir, defaults)
+  }
   const service = new GoalService(
     new GoalStore(dataDir),
     defaults,
@@ -108,6 +154,7 @@ const main = async (): Promise<void> => {
     }
     case 'SessionStart': {
       const source = optionalString(input, 'source')
+      const permissionMode = optionalString(input, 'permission_mode')
       if (
         source !== 'startup' &&
         source !== 'resume' &&
@@ -120,6 +167,9 @@ const main = async (): Promise<void> => {
         session_id: sessionId,
         transcript_path: transcriptPath,
         source,
+        ...(permissionMode !== undefined
+          ? { permission_mode: permissionMode }
+          : {}),
       })
       const reminder = await service.getReminderContext(sessionId)
       if (reminder) {
@@ -162,6 +212,64 @@ const main = async (): Promise<void> => {
         agent_id: requiredString(input, 'agent_id'),
       })
       return
+    case 'PreToolUse': {
+      const permissionMode = optionalString(input, 'permission_mode')
+      const output = await service.handlePreToolUse({
+        session_id: sessionId,
+        transcript_path: transcriptPath,
+        cwd: requiredString(input, 'cwd'),
+        hook_event_name: 'PreToolUse',
+        tool_name: requiredString(input, 'tool_name'),
+        tool_input: input.tool_input,
+        tool_use_id: requiredString(input, 'tool_use_id'),
+        ...(permissionMode !== undefined
+          ? { permission_mode: permissionMode }
+          : {}),
+      })
+      if (output) writeJson(output)
+      return
+    }
+    case 'PermissionRequest': {
+      const permissionMode = optionalString(input, 'permission_mode')
+      const output = await service.handlePermissionRequest({
+        session_id: sessionId,
+        transcript_path: transcriptPath,
+        cwd: requiredString(input, 'cwd'),
+        hook_event_name: 'PermissionRequest',
+        tool_name: requiredString(input, 'tool_name'),
+        tool_input: input.tool_input,
+        ...(permissionMode !== undefined
+          ? { permission_mode: permissionMode }
+          : {}),
+        ...(input.permission_suggestions !== undefined
+          ? { permission_suggestions: input.permission_suggestions }
+          : {}),
+      })
+      if (output) writeJson(output)
+      return
+    }
+    case 'Elicitation': {
+      const permissionMode = optionalString(input, 'permission_mode')
+      const mode = optionalString(input, 'mode')
+      const url = optionalString(input, 'url')
+      const elicitationId = optionalString(input, 'elicitation_id')
+      const output = await service.handleElicitation({
+        session_id: sessionId,
+        transcript_path: transcriptPath,
+        cwd: requiredString(input, 'cwd'),
+        hook_event_name: 'Elicitation',
+        mcp_server_name: requiredString(input, 'mcp_server_name'),
+        message: requiredString(input, 'message'),
+        ...(permissionMode !== undefined
+          ? { permission_mode: permissionMode }
+          : {}),
+        ...(mode === 'form' || mode === 'url' ? { mode } : {}),
+        ...(url !== undefined ? { url } : {}),
+        ...(elicitationId !== undefined ? { elicitation_id: elicitationId } : {}),
+      })
+      if (output) writeJson(output)
+      return
+    }
     default:
       throw new Error(`Unsupported hook event: ${event}`)
   }
@@ -172,9 +280,35 @@ try {
 } catch (error) {
   const goalError = asGoalError(error)
   process.stderr.write(`goal hook warning [${goalError.code}]: ${goalError.message}\n`)
-  // Hooks must fail open. Only Stop accepts a top-level systemMessage; plain
-  // stdout from PreCompact would be injected into compaction instructions.
-  if (currentEvent === 'Stop') {
+  if (currentEvent === 'PreToolUse') {
+    try {
+      writeJson(
+        preToolUseDeny(failClosedGuidance('Tool use', goalError.code)),
+      )
+    } catch {
+      // stdout may already be closed during shutdown.
+    }
+  } else if (currentEvent === 'PermissionRequest') {
+    try {
+      writeJson(
+        permissionRequestDeny(
+          failClosedGuidance('Permission request', goalError.code),
+        ),
+      )
+    } catch {
+      // stdout may already be closed during shutdown.
+    }
+  } else if (currentEvent === 'Elicitation') {
+    try {
+      writeJson(
+        elicitationDecline(failClosedGuidance('MCP elicitation', goalError.code)),
+      )
+    } catch {
+      // stdout may already be closed during shutdown.
+    }
+  } else if (currentEvent === 'Stop') {
+    // Only Stop accepts a top-level systemMessage; plain stdout from
+    // PreCompact would be injected into compaction instructions.
     try {
       writeJson({
         systemMessage: `Goal auto-continuation was disabled for this turn: ${goalError.message}`,

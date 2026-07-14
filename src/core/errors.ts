@@ -5,6 +5,7 @@ export type GoalErrorCode =
   | 'INVALID_TRANSITION'
   | 'VALIDATION_ERROR'
   | 'CORRUPT_STATE'
+  | 'STATE_UNAVAILABLE'
   | 'LOCK_TIMEOUT'
   | 'INTERNAL_ERROR'
 

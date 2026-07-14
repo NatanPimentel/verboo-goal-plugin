@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "bun scripts/build.ts",
-    "check": "bun run validate:versions && bun run validate:plugin-offline && bun run typecheck && bun run lint && bun test && bun run build",
+    "check": "bun run typecheck && bun run lint && bun run build && bun run validate:versions && bun run validate:plugin-offline && bun test",
     "lint": "eslint src test scripts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

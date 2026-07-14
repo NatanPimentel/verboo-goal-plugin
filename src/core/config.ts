@@ -43,6 +43,14 @@ const option = (
 export const loadDefaultGoalConfig = (
   env: NodeJS.ProcessEnv = process.env,
 ): DefaultGoalConfig => ({
+  autoApprovePermissions: parseBoolean(
+    option(
+      env,
+      'GOAL_AUTO_APPROVE_PERMISSIONS',
+      'CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_PERMISSIONS',
+    ),
+    true,
+  ),
   autoContinue: parseBoolean(
     option(env, 'GOAL_AUTO_CONTINUE', 'CLAUDE_PLUGIN_OPTION_AUTO_CONTINUE'),
     true,

@@ -77,3 +77,51 @@ export const stopInput = (
   last_assistant_message: 'Made meaningful progress and verified the result.',
   ...overrides,
 })
+
+export const permissionRequestInput = (
+  context: TestContext,
+  overrides: Record<string, unknown> = {},
+) => ({
+  session_id: 'session-test',
+  transcript_path: context.transcriptPath,
+  cwd: context.dataDir,
+  hook_event_name: 'PermissionRequest' as const,
+  permission_mode: 'default',
+  tool_name: 'powershell',
+  tool_input: { command: 'Write-Output permission-test' },
+  ...overrides,
+})
+
+export const preToolUseInput = (
+  context: TestContext,
+  overrides: Record<string, unknown> = {},
+) => ({
+  session_id: 'session-test',
+  transcript_path: context.transcriptPath,
+  cwd: context.dataDir,
+  hook_event_name: 'PreToolUse' as const,
+  permission_mode: 'default',
+  tool_name: 'Bash',
+  tool_input: { command: 'Write-Output pre-tool-use-test' },
+  tool_use_id: 'tool-use-test',
+  ...overrides,
+})
+
+export const elicitationInput = (
+  context: TestContext,
+  overrides: Record<string, unknown> = {},
+) => ({
+  session_id: 'session-test',
+  transcript_path: context.transcriptPath,
+  cwd: context.dataDir,
+  hook_event_name: 'Elicitation' as const,
+  permission_mode: 'default',
+  mcp_server_name: 'remote-mcp',
+  message: 'Choose an account to continue.',
+  mode: 'form' as const,
+  requested_schema: {
+    type: 'object',
+    properties: { account: { type: 'string' } },
+  },
+  ...overrides,
+})

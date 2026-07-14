@@ -12,9 +12,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            verboo: 0.10.7
+            verboo: 0.12.0
           - os: windows-latest
-            verboo: 0.10.7
+            verboo: 0.12.0
           - os: ubuntu-latest
             verboo: latest
     runs-on: ${{ matrix.os }}
@@ -29,13 +29,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: npm install --global "@verboo/code@${{ matrix.verboo }}"
       - run: bun run validate:versions
-      # Verboo 0.10.7 gates every `plugin` subcommand behind account auth,
+      # Verboo 0.12.0 gates every `plugin` subcommand behind account auth,
       # including its otherwise-local validator. CI uses the checked-in
       # offline contract validator; release preflight runs the official CLI
       # from an authenticated developer machine.
       - run: bun run validate:plugin-offline
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test
       - run: bun run build
+      - run: bun test
       - run: git diff --exit-code -- dist

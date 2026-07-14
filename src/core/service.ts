@@ -18,6 +18,12 @@ import type {
   GoalStatus,
   GoalView,
   HistoryOutcome,
+  ElicitationHookInput,
+  ElicitationHookOutput,
+  PermissionRequestHookInput,
+  PermissionRequestHookOutput,
+  PreToolUseHookInput,
+  PreToolUseHookOutput,
   SessionState,
   StopHookInput,
   StopHookOutput,
@@ -238,16 +244,21 @@ export class GoalService {
     session_id: string
     transcript_path: string
     source: 'startup' | 'resume' | 'clear' | 'compact'
+    permission_mode?: string
   }): Promise<GoalView | null> {
     const validSessionId = validateSessionId(input.session_id)
     return this.store.update(validSessionId, state => {
-      const now = this.nowIso()
-      this.updateRuntime(state, input.transcript_path, undefined, now)
+      const nowMs = this.now()
+      const now = new Date(nowMs).toISOString()
+      this.updateRuntime(state, input.transcript_path, input.permission_mode, now)
       const goal = state.current
       if (!goal) return null
       if (input.source !== 'compact') {
         goal.activeSubagents = []
         goal.subagentDeferrals = 0
+      }
+      if (goal.status === 'active' && isPlanMode(input.permission_mode)) {
+        this.pauseGoal(goal, nowMs, 'Paused because the session is in Plan mode.')
       }
       if (goal.status === 'active' && !goal.activeSince) goal.activeSince = now
       goal.updatedAt = now
@@ -359,6 +370,45 @@ export class GoalService {
     const goal = state?.current
     if (!goal || !isOpen(goal.status)) return null
     return buildReminder(validSessionId, goal, this.elapsedMs(goal))
+  }
+
+  async handlePreToolUse(
+    input: PreToolUseHookInput,
+  ): Promise<PreToolUseHookOutput | null> {
+    if (!(await this.isAutonomousExecution(input))) return null
+    // Verboo applies explicit deny/ask rules after this hook result. Do not
+    // alter inputs or install a rule here; PermissionRequest remains the
+    // fallback when an explicit ask or canUseTool path still reaches the UI.
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+      },
+    }
+  }
+
+  async handlePermissionRequest(
+    input: PermissionRequestHookInput,
+  ): Promise<PermissionRequestHookOutput | null> {
+    if (!(await this.isAutonomousExecution(input))) return null
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    }
+  }
+
+  async handleElicitation(
+    input: ElicitationHookInput,
+  ): Promise<ElicitationHookOutput | null> {
+    if (!(await this.isAutonomousExecution(input))) return null
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'Elicitation',
+        action: 'decline',
+      },
+    }
   }
 
   async handleStop(input: StopHookInput): Promise<StopHookOutput | null> {
@@ -608,6 +658,27 @@ export class GoalService {
       }
       return this.toView(goal, validSessionId)
     })
+  }
+
+  /**
+   * Tool permission and MCP elicitation hooks need a current answer, not a
+   * lifecycle transition. Keep this as a snapshot read so it cannot contend
+   * with normal state writes or update runtime metadata on every tool call.
+   */
+  private async isAutonomousExecution(input: {
+    session_id: string
+    permission_mode?: string
+  }): Promise<boolean> {
+    if (!this.defaults.autoApprovePermissions) return false
+    // An explicit current mode is authoritative and lets Plan mode bypass even
+    // an unavailable snapshot without producing an autonomy decision.
+    if (isPlanMode(input.permission_mode)) return false
+
+    const validSessionId = validateSessionId(input.session_id)
+    const state = await this.store.readForAutonomy(validSessionId)
+    const permissionMode = input.permission_mode ?? state?.runtime.permissionMode
+    if (isPlanMode(permissionMode)) return false
+    return state?.current?.status === 'active'
   }
 
   private updateRuntime(
