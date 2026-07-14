@@ -14,7 +14,7 @@
     "auto_approve_permissions": {
       "type": "boolean",
       "title": "Auto-approve permissions during active goals",
-      "description": "Allow autonomous tool execution and decline MCP elicitation only while an active /goal is running. Disable to keep Verboo's normal permission and elicitation flow.",
+      "description": "Pre-authorize tool calls via PreToolUse and PermissionRequest, and decline MCP elicitation during active goals. Verboo's explicit deny/ask rules still take precedence. Disable to keep normal permission and elicitation behavior.",
       "default": true
     },
     "auto_continue": {
