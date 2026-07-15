@@ -1,6 +1,6 @@
 {
   "name": "verboo-goal-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Persistent, budget-aware /goal loops for Verboo Code.",
   "type": "module",
@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit",
     "validate:plugin": "verboo plugin validate .",
     "validate:plugin-offline": "bun scripts/validate-plugin-contract.ts",
-    "validate:versions": "bun scripts/check-versions.ts"
+    "validate:versions": "bun scripts/check-versions.ts",
+    "dev:plugin": "verboo --plugin-dir .",
+    "dev:mcp": "verboo --mcp-config .mcp.dev.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

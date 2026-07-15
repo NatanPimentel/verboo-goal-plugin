@@ -204,12 +204,18 @@ const main = async (): Promise<void> => {
         session_id: sessionId,
         agent_id: requiredString(input, 'agent_id'),
         agent_type: optionalString(input, 'agent_type') ?? '',
+        ...(input.task_id !== undefined && typeof input.task_id === 'string'
+          ? { task_id: input.task_id }
+          : {}),
       })
       return
     case 'SubagentStop':
       await service.handleSubagentStop({
         session_id: sessionId,
         agent_id: requiredString(input, 'agent_id'),
+        ...(input.task_id !== undefined && typeof input.task_id === 'string'
+          ? { task_id: input.task_id }
+          : {}),
       })
       return
     case 'PreToolUse': {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { appendFile, mkdir, readFile, stat } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import { GoalError } from '../src/core/errors.js'
 import { loadDefaultGoalConfig } from '../src/core/config.js'
 import { GoalService } from '../src/core/service.js'
@@ -583,5 +584,249 @@ describe('autonomy hook consent', () => {
 
     expect((await stat(lockPath)).isDirectory()).toBe(true)
     expect(await readFile(statePath, 'utf8')).toBe(stateBefore)
+  })
+})
+
+describe('task board', () => {
+  let context: TestContext | undefined
+  afterEach(async () => context?.cleanup())
+
+  test('adds tasks with auto-incrementing ids', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Ship plugin' })
+
+    const first = await context.service.addTask('session', {
+      type: 'scout',
+      assignee: 'scout',
+      objective: 'Explore codebase',
+    })
+    expect(first.tasks).toHaveLength(1)
+    expect(first.tasks[0]?.id).toBe('T001')
+    expect(first.nextTaskId).toBe(2)
+
+    const second = await context.service.addTask('session', {
+      type: 'worker',
+      assignee: 'worker',
+      objective: 'Implement feature',
+    })
+    expect(second.tasks).toHaveLength(2)
+    expect(second.tasks[1]?.id).toBe('T002')
+    expect(second.nextTaskId).toBe(3)
+  })
+
+  test('updates task status and receipt', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Ship plugin' })
+    await context.service.addTask('session', {
+      type: 'worker',
+      assignee: 'worker',
+      objective: 'Implement feature',
+    })
+
+    const activated = await context.service.updateTask('session', 'T001', {
+      status: 'active',
+    })
+    expect(activated.tasks[0]?.status).toBe('active')
+
+    const done = await context.service.updateTask('session', 'T001', {
+      receipt: {
+        result: 'done',
+        taskId: 'T001',
+        summary: 'Feature implemented and tested',
+      },
+    })
+    expect(done.tasks[0]?.status).toBe('done')
+    expect(done.tasks[0]?.receipt?.summary).toBe('Feature implemented and tested')
+
+    await expect(
+      context.service.updateTask('session', 'T001', { status: 'queued' }),
+    ).rejects.toMatchObject({ code: 'INVALID_TASK_TRANSITION' })
+  })
+
+  test('filters tasks and returns active or next queued task', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Ship plugin' })
+    await context.service.addTask('session', {
+      type: 'scout',
+      assignee: 'scout',
+      objective: 'Explore',
+    })
+    await context.service.addTask('session', {
+      type: 'worker',
+      assignee: 'worker',
+      objective: 'Build',
+    })
+
+    const queued = await context.service.getTasks('session', { status: 'queued' })
+    expect(queued).toHaveLength(2)
+
+    const active = await context.service.getActiveTask('session')
+    expect(active?.id).toBe('T001')
+
+    await context.service.updateTask('session', 'T001', { status: 'done' })
+    const next = await context.service.getActiveTask('session')
+    expect(next?.id).toBe('T002')
+  })
+
+  test('rejects task operations without an active goal', async () => {
+    context = await createTestContext()
+    await expect(
+      context.service.addTask('session', {
+        type: 'scout',
+        assignee: 'scout',
+        objective: 'Explore',
+      }),
+    ).rejects.toMatchObject({ code: 'NO_ACTIVE_GOAL' })
+  })
+})
+
+describe('subgoals', () => {
+  let context: TestContext | undefined
+  afterEach(async () => context?.cleanup())
+
+  test('spawns a depth-1 subgoal and restores parent on completion', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Parent goal' })
+    await context.service.addTask('session', {
+      type: 'pm',
+      assignee: 'pm',
+      objective: 'Plan subgoal',
+    })
+
+    const subgoal = await context.service.addSubgoal('session', {
+      parentTaskId: 'T001',
+      objective: 'Child goal',
+    })
+    expect(subgoal.parent?.depth).toBe(1)
+    expect(subgoal.parent?.parentTaskId).toBe('T001')
+
+    const current = await context.service.getGoal('session')
+    expect(current?.objective).toBe('Child goal')
+
+    const completed = await context.service.finishGoal('session', 'complete', {
+      evidence: 'Child done',
+    })
+    expect(completed.status).toBe('complete')
+
+    const restored = await context.service.getGoal('session')
+    expect(restored).not.toBeNull()
+    expect(restored?.objective).toBe('Parent goal')
+    expect(restored?.tasks[0]?.status).toBe('done')
+  })
+
+  test('rejects depth greater than 1', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Parent goal' })
+    await context.service.addTask('session', {
+      type: 'pm',
+      assignee: 'pm',
+      objective: 'Plan subgoal',
+    })
+    await context.service.addSubgoal('session', {
+      parentTaskId: 'T001',
+      objective: 'Child goal',
+    })
+    await context.service.addTask('session', {
+      type: 'pm',
+      assignee: 'pm',
+      objective: 'Plan nested subgoal',
+    })
+
+    await expect(
+      context.service.addSubgoal('session', {
+        parentTaskId: 'T001',
+        objective: 'Nested child',
+      }),
+    ).rejects.toMatchObject({ code: 'DEPTH_EXCEEDED' })
+  })
+
+  test('getSubgoal retrieves current, stacked, and archived subgoals', async () => {
+    context = await createTestContext()
+    await context.service.createGoal('session', { objective: 'Parent goal' })
+    await context.service.addTask('session', {
+      type: 'pm',
+      assignee: 'pm',
+      objective: 'Plan subgoal',
+    })
+    const subgoal = await context.service.addSubgoal('session', {
+      parentTaskId: 'T001',
+      objective: 'Child goal',
+    })
+
+    const found = await context.service.getSubgoal('session', subgoal.goalId)
+    expect(found).not.toBeNull()
+    expect(found?.objective).toBe('Child goal')
+
+    await context.service.finishGoal('session', 'complete', {
+      evidence: 'Child done',
+    })
+    const archived = await context.service.getSubgoal('session', subgoal.goalId)
+    expect(archived).not.toBeNull()
+    expect(archived?.status).toBe('complete')
+  })
+})
+
+describe('schema migration', () => {
+  let context: TestContext | undefined
+  afterEach(async () => context?.cleanup())
+
+  test('migrates v1 state to v2 preserving goal data', async () => {
+    context = await createTestContext()
+    const statePath = context.store.sessionPath('legacy-session')
+    const v1 = {
+      schemaVersion: 1,
+      sessionId: 'legacy-session',
+      runtime: { updatedAt: new Date().toISOString() },
+      current: {
+        id: 'goal-1',
+        objective: 'Legacy goal',
+        status: 'active',
+        limits: {
+          tokenBudget: null,
+          maxAutoTurns: 10,
+          maxDurationSeconds: null,
+          autoContinue: false,
+          deferWhileSubagentsActive: true,
+          noProgressTokenThreshold: 50,
+          maxNoProgressTurns: 5,
+          maxHookFailures: 3,
+          maxSubagentDeferrals: 3,
+        },
+        usage: {
+          tokens: 0,
+          autoTurns: 0,
+          accumulatedActiveMs: 0,
+          noProgressTurns: 0,
+          hookFailures: 0,
+          unmeteredTurns: 0,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        activeSince: new Date().toISOString(),
+        wrapUpIssued: false,
+        checkpoints: [
+          {
+            at: new Date().toISOString(),
+            summary: 'Legacy checkpoint',
+            outputTokens: 100,
+          },
+        ],
+        activeSubagents: [],
+        accountedMessageIds: [],
+        duplicateStopCount: 0,
+        subagentDeferrals: 0,
+      },
+      history: [],
+    }
+    await mkdir(dirname(statePath), { recursive: true })
+    await writeFile(statePath, JSON.stringify(v1))
+
+    const goal = await context.service.getGoal('legacy-session')
+    expect(goal).not.toBeNull()
+    expect(goal?.objective).toBe('Legacy goal')
+    expect(goal?.tasks).toEqual([])
+    expect(goal?.nextTaskId).toBe(1)
+    expect(goal?.checkpoints).toHaveLength(1)
+    expect(goal?.checkpoints[0]?.summary).toBe('Legacy checkpoint')
   })
 })

@@ -10,7 +10,7 @@
     {
       "name": "goal",
       "description": "Persistent, budget-aware goals with safe automatic continuation.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/NatanPimentel/verboo-goal-plugin",

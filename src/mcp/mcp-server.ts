@@ -12,7 +12,7 @@ import { formatGoalView } from '../core/prompts.js'
 import { GoalService } from '../core/service.js'
 import { GoalStore } from '../core/store.js'
 
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 const dataDir =
   process.env.CLAUDE_PLUGIN_DATA ?? process.env.GOAL_PLUGIN_DATA ?? ''
 const store = new GoalStore(dataDir)
@@ -53,6 +53,94 @@ const checkpointSchema = z.object({
   facts: z.array(z.string().min(1).max(280)).max(20).optional(),
   contradictions: z.array(z.string().min(1).max(280)).max(20).optional(),
   verification: z.array(z.string().min(1).max(280)).max(20).optional(),
+})
+
+const taskTypeProperty = {
+  type: 'string',
+  enum: ['scout', 'worker', 'judge', 'pm'],
+} as const
+
+const taskStatusProperty = {
+  type: 'string',
+  enum: ['queued', 'active', 'blocked', 'done'],
+} as const
+
+const taskStringArray = {
+  type: 'array',
+  items: checkpointField,
+  maxItems: 20,
+} as const
+
+const addTaskSchema = sessionSchema.extend({
+  type: z.enum(['scout', 'worker', 'judge', 'pm']),
+  assignee: z.enum(['scout', 'worker', 'judge', 'pm']),
+  objective: z.string().min(1).max(4_000),
+  inputs: z.array(z.string().min(1).max(280)).max(20).optional(),
+  constraints: z.array(z.string().min(1).max(280)).max(20).optional(),
+  expected_output: z.array(z.string().min(1).max(280)).max(20).optional(),
+  allowed_files: z.array(z.string().min(1).max(280)).max(20).optional(),
+  verify: z.array(z.string().min(1).max(280)).max(20).optional(),
+  stop_if: z.array(z.string().min(1).max(280)).max(20).optional(),
+})
+
+const updateTaskSchema = sessionSchema.extend({
+  task_id: z.string().min(1).max(16),
+  status: z.enum(['queued', 'active', 'blocked', 'done']).optional(),
+  assignee: z.enum(['scout', 'worker', 'judge', 'pm']).optional(),
+  objective: z.string().min(1).max(4_000).optional(),
+  inputs: z.array(z.string().min(1).max(280)).max(20).optional(),
+  constraints: z.array(z.string().min(1).max(280)).max(20).optional(),
+  expected_output: z.array(z.string().min(1).max(280)).max(20).optional(),
+  allowed_files: z.array(z.string().min(1).max(280)).max(20).optional(),
+  verify: z.array(z.string().min(1).max(280)).max(20).optional(),
+  stop_if: z.array(z.string().min(1).max(280)).max(20).optional(),
+  receipt: z
+    .object({
+      result: z.enum(['done', 'blocked']),
+      summary: z.string().min(1).max(4_000),
+      evidence: z.array(z.string().min(1).max(280)).max(20).optional(),
+      facts: z.array(z.string().min(1).max(280)).max(20).optional(),
+      contradictions: z.array(z.string().min(1).max(280)).max(20).optional(),
+      changed_files: z.array(z.string().min(1).max(280)).max(20).optional(),
+      commands: z.array(z.string().min(1).max(280)).max(20).optional(),
+      verification_attempts: z.array(z.string().min(1).max(280)).max(20).optional(),
+      decision: z
+        .enum([
+          'approved',
+          'rejected',
+          'approve_subgoal',
+          'reject_subgoal',
+          'not_complete',
+          'complete',
+        ])
+        .optional(),
+      full_outcome_complete: z.boolean().optional(),
+      rationale: z.string().min(1).max(4_000).optional(),
+    })
+    .optional(),
+})
+
+const taskIdSchema = sessionSchema.extend({
+  task_id: z.string().min(1).max(16),
+})
+
+const getTasksSchema = sessionSchema.extend({
+  status: z.enum(['queued', 'active', 'blocked', 'done']).optional(),
+  type: z.enum(['scout', 'worker', 'judge', 'pm']).optional(),
+  assignee: z.enum(['scout', 'worker', 'judge', 'pm']).optional(),
+})
+
+const addSubgoalSchema = sessionSchema.extend({
+  parent_task_id: z.string().min(1).max(16),
+  objective: z.string().min(1).max(4_000),
+  token_budget: z.number().int().min(0).max(10_000_000).optional(),
+  max_auto_turns: z.number().int().min(1).max(100).optional(),
+  max_duration_seconds: z.number().int().min(0).max(86_400).optional(),
+  auto_continue: z.boolean().optional(),
+})
+
+const subgoalIdSchema = sessionSchema.extend({
+  subgoal_id: z.string().min(1).max(256),
 })
 
 const objectSchema = (
@@ -210,6 +298,133 @@ const tools: Tool[] = [
       ['session_id', 'summary'],
     ),
   },
+  {
+    name: 'add_task',
+    description: 'Add a task to the current goal task board.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        type: taskTypeProperty,
+        assignee: taskTypeProperty,
+        objective: { type: 'string', minLength: 1, maxLength: 4_000 },
+        inputs: taskStringArray,
+        constraints: taskStringArray,
+        expected_output: taskStringArray,
+        allowed_files: taskStringArray,
+        verify: taskStringArray,
+        stop_if: taskStringArray,
+      },
+      ['session_id', 'type', 'assignee', 'objective'],
+    ),
+  },
+  {
+    name: 'update_task',
+    description: 'Update a task on the current goal task board, including its receipt.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        task_id: { type: 'string', minLength: 1, maxLength: 16 },
+        status: taskStatusProperty,
+        assignee: taskTypeProperty,
+        objective: { type: 'string', minLength: 1, maxLength: 4_000 },
+        inputs: taskStringArray,
+        constraints: taskStringArray,
+        expected_output: taskStringArray,
+        allowed_files: taskStringArray,
+        verify: taskStringArray,
+        stop_if: taskStringArray,
+        receipt: {
+          type: 'object',
+          properties: {
+            result: { type: 'string', enum: ['done', 'blocked'] },
+            summary: { type: 'string', minLength: 1, maxLength: 4_000 },
+            evidence: taskStringArray,
+            facts: taskStringArray,
+            contradictions: taskStringArray,
+            changed_files: taskStringArray,
+            commands: taskStringArray,
+            verification_attempts: taskStringArray,
+            decision: {
+              type: 'string',
+              enum: [
+                'approved',
+                'rejected',
+                'approve_subgoal',
+                'reject_subgoal',
+                'not_complete',
+                'complete',
+              ],
+            },
+            full_outcome_complete: { type: 'boolean' },
+            rationale: { type: 'string', minLength: 1, maxLength: 4_000 },
+          },
+          required: ['result', 'summary'],
+          additionalProperties: false,
+        },
+      },
+      ['session_id', 'task_id'],
+    ),
+  },
+  {
+    name: 'get_tasks',
+    description: 'List tasks on the current goal task board, optionally filtered.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        status: taskStatusProperty,
+        type: taskTypeProperty,
+        assignee: taskTypeProperty,
+      },
+      ['session_id'],
+    ),
+    annotations: { readOnlyHint: true, idempotentHint: true },
+  },
+  {
+    name: 'assign_task',
+    description: 'Assign a task to a different agent type.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        task_id: { type: 'string', minLength: 1, maxLength: 16 },
+        assignee: taskTypeProperty,
+      },
+      ['session_id', 'task_id', 'assignee'],
+    ),
+  },
+  {
+    name: 'get_active_task',
+    description: 'Return the currently active task, or the next queued task if none is active.',
+    inputSchema: objectSchema({ session_id: sessionProperty }, ['session_id']),
+    annotations: { readOnlyHint: true, idempotentHint: true },
+  },
+  {
+    name: 'add_subgoal',
+    description: 'Spawn a depth-1 child goal from a task. The current goal becomes the parent and the child goal becomes active.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        parent_task_id: { type: 'string', minLength: 1, maxLength: 16 },
+        objective: { type: 'string', minLength: 1, maxLength: 4_000 },
+        token_budget: { type: 'integer', minimum: 0, maximum: 10_000_000 },
+        max_auto_turns: { type: 'integer', minimum: 1, maximum: 100 },
+        max_duration_seconds: { type: 'integer', minimum: 0, maximum: 86_400 },
+        auto_continue: { type: 'boolean' },
+      },
+      ['session_id', 'parent_task_id', 'objective'],
+    ),
+  },
+  {
+    name: 'get_subgoal',
+    description: 'Read a subgoal by id, including archived ones.',
+    inputSchema: objectSchema(
+      {
+        session_id: sessionProperty,
+        subgoal_id: { type: 'string', minLength: 1, maxLength: 256 },
+      },
+      ['session_id', 'subgoal_id'],
+    ),
+    annotations: { readOnlyHint: true, idempotentHint: true },
+  },
 ]
 
 const success = (
@@ -330,6 +545,134 @@ const handleTool = async (name: string, raw: unknown) => {
           },
         )
         return success(formatGoalView(goal), goal)
+      }
+      case 'add_task': {
+        const input = parse(addTaskSchema, raw)
+        const goal = await service.addTask(input.session_id, {
+          type: input.type,
+          assignee: input.assignee,
+          objective: input.objective,
+          ...(input.inputs !== undefined ? { inputs: input.inputs } : {}),
+          ...(input.constraints !== undefined ? { constraints: input.constraints } : {}),
+          ...(input.expected_output !== undefined
+            ? { expectedOutput: input.expected_output }
+            : {}),
+          ...(input.allowed_files !== undefined
+            ? { allowedFiles: input.allowed_files }
+            : {}),
+          ...(input.verify !== undefined ? { verify: input.verify } : {}),
+          ...(input.stop_if !== undefined ? { stopIf: input.stop_if } : {}),
+        })
+        return success(formatGoalView(goal), goal)
+      }
+      case 'update_task': {
+        const input = parse(updateTaskSchema, raw)
+        const goal = await service.updateTask(input.session_id, input.task_id, {
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.assignee !== undefined ? { assignee: input.assignee } : {}),
+          ...(input.objective !== undefined ? { objective: input.objective } : {}),
+          ...(input.inputs !== undefined ? { inputs: input.inputs } : {}),
+          ...(input.constraints !== undefined ? { constraints: input.constraints } : {}),
+          ...(input.expected_output !== undefined
+            ? { expectedOutput: input.expected_output }
+            : {}),
+          ...(input.allowed_files !== undefined
+            ? { allowedFiles: input.allowed_files }
+            : {}),
+          ...(input.verify !== undefined ? { verify: input.verify } : {}),
+          ...(input.stop_if !== undefined ? { stopIf: input.stop_if } : {}),
+          ...(input.receipt !== undefined
+            ? {
+                receipt: {
+                  result: input.receipt.result,
+                  taskId: input.task_id,
+                  summary: input.receipt.summary,
+                  ...(input.receipt.evidence !== undefined
+                    ? { evidence: input.receipt.evidence }
+                    : {}),
+                  ...(input.receipt.facts !== undefined
+                    ? { facts: input.receipt.facts }
+                    : {}),
+                  ...(input.receipt.contradictions !== undefined
+                    ? { contradictions: input.receipt.contradictions }
+                    : {}),
+                  ...(input.receipt.changed_files !== undefined
+                    ? { changedFiles: input.receipt.changed_files }
+                    : {}),
+                  ...(input.receipt.commands !== undefined
+                    ? { commands: input.receipt.commands }
+                    : {}),
+                  ...(input.receipt.verification_attempts !== undefined
+                    ? { verificationAttempts: input.receipt.verification_attempts }
+                    : {}),
+                  ...(input.receipt.decision !== undefined
+                    ? { decision: input.receipt.decision }
+                    : {}),
+                  ...(input.receipt.full_outcome_complete !== undefined
+                    ? { fullOutcomeComplete: input.receipt.full_outcome_complete }
+                    : {}),
+                  ...(input.receipt.rationale !== undefined
+                    ? { rationale: input.receipt.rationale }
+                    : {}),
+                },
+              }
+            : {}),
+        })
+        return success(formatGoalView(goal), goal)
+      }
+      case 'get_tasks': {
+        const input = parse(getTasksSchema, raw)
+        const tasks = await service.getTasks(input.session_id, {
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.assignee !== undefined ? { assignee: input.assignee } : {}),
+        })
+        return success(`Found ${tasks.length} tasks.`, tasks)
+      }
+      case 'assign_task': {
+        const input = parse(
+          taskIdSchema.extend({ assignee: z.enum(['scout', 'worker', 'judge', 'pm']) }),
+          raw,
+        )
+        const goal = await service.assignTask(
+          input.session_id,
+          input.task_id,
+          input.assignee,
+        )
+        return success(formatGoalView(goal), goal)
+      }
+      case 'get_active_task': {
+        const input = parse(sessionSchema, raw)
+        const task = await service.getActiveTask(input.session_id)
+        return success(task ? `Active task: ${task.id}` : 'No active or queued task.', task)
+      }
+      case 'add_subgoal': {
+        const input = parse(addSubgoalSchema, raw)
+        const goal = await service.addSubgoal(input.session_id, {
+          parentTaskId: input.parent_task_id,
+          objective: input.objective,
+          ...(input.token_budget !== undefined
+            ? { tokenBudget: input.token_budget }
+            : {}),
+          ...(input.max_auto_turns !== undefined
+            ? { maxAutoTurns: input.max_auto_turns }
+            : {}),
+          ...(input.max_duration_seconds !== undefined
+            ? { maxDurationSeconds: input.max_duration_seconds }
+            : {}),
+          ...(input.auto_continue !== undefined
+            ? { autoContinue: input.auto_continue }
+            : {}),
+        })
+        return success(formatGoalView(goal), goal)
+      }
+      case 'get_subgoal': {
+        const input = parse(subgoalIdSchema, raw)
+        const goal = await service.getSubgoal(input.session_id, input.subgoal_id)
+        return success(
+          goal ? formatGoalView(goal) : 'Subgoal not found.',
+          goal,
+        )
       }
       default:
         throw new GoalError('VALIDATION_ERROR', `Unknown goal tool: ${name}`)

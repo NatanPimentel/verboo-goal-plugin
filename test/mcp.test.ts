@@ -45,6 +45,13 @@ describe('goal MCP server', () => {
       'update_goal',
       'clear_goal',
       'add_checkpoint',
+      'add_task',
+      'update_task',
+      'get_tasks',
+      'assign_task',
+      'get_active_task',
+      'add_subgoal',
+      'get_subgoal',
     ])
 
     const created = await client.callTool({
@@ -76,5 +83,86 @@ describe('goal MCP server', () => {
       },
     })
     expect(completed.isError).not.toBe(true)
+  })
+
+  test('manages task board and subgoals over stdio', async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'verboo-goal-mcp-tasks-'))
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ['src/mcp/mcp-server.ts'],
+      cwd: process.cwd(),
+      env: { ...cleanEnvironment(), GOAL_PLUGIN_DATA: dataDir },
+    })
+    client = new Client({ name: 'goal-test-client', version: '0.2.0' })
+    await client.connect(transport)
+
+    await client.callTool({
+      name: 'create_goal',
+      arguments: { session_id: 'task-session', objective: 'Build feature' },
+    })
+
+    const added = await client.callTool({
+      name: 'add_task',
+      arguments: {
+        session_id: 'task-session',
+        type: 'scout',
+        assignee: 'scout',
+        objective: 'Explore API',
+      },
+    })
+    expect(added.isError).not.toBe(true)
+    expect(JSON.stringify(added.structuredContent)).toContain('T001')
+
+    const active = await client.callTool({
+      name: 'get_active_task',
+      arguments: { session_id: 'task-session' },
+    })
+    expect(active.isError).not.toBe(true)
+    expect(JSON.stringify(active.structuredContent)).toContain('T001')
+
+    const updated = await client.callTool({
+      name: 'update_task',
+      arguments: {
+        session_id: 'task-session',
+        task_id: 'T001',
+        receipt: {
+          result: 'done',
+          summary: 'API explored',
+        },
+      },
+    })
+    expect(updated.isError).not.toBe(true)
+    expect(JSON.stringify(updated.structuredContent)).toContain('done')
+
+    await client.callTool({
+      name: 'add_task',
+      arguments: {
+        session_id: 'task-session',
+        type: 'worker',
+        assignee: 'worker',
+        objective: 'Implement endpoint',
+      },
+    })
+
+    const subgoal = await client.callTool({
+      name: 'add_subgoal',
+      arguments: {
+        session_id: 'task-session',
+        parent_task_id: 'T002',
+        objective: 'Implement endpoint',
+      },
+    })
+    expect(subgoal.isError).not.toBe(true)
+    expect(JSON.stringify(subgoal.structuredContent)).toContain('Implement endpoint')
+
+    const retrieved = await client.callTool({
+      name: 'get_subgoal',
+      arguments: {
+        session_id: 'task-session',
+        subgoal_id: (subgoal.structuredContent as { data: { goalId: string } }).data.goalId,
+      },
+    })
+    expect(retrieved.isError).not.toBe(true)
+    expect(JSON.stringify(retrieved.structuredContent)).toContain('Implement endpoint')
   })
 })

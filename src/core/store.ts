@@ -10,8 +10,8 @@ import {
 } from 'node:fs/promises'
 import { join } from 'node:path'
 import { GoalError } from './errors.js'
-import { sessionStateSchema } from './schema.js'
-import type { SessionState } from './types.js'
+import { sessionStateSchema, sessionStateSchemaV1 } from './schema.js'
+import type { GoalHistoryEntry, GoalRecord, SessionState } from './types.js'
 
 interface GoalStoreOptions {
   lockTimeoutMs?: number
@@ -38,12 +38,40 @@ export const createEmptySessionState = (
   sessionId: string,
   now = new Date().toISOString(),
 ): SessionState => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   sessionId,
   runtime: { updatedAt: now },
   current: null,
+  stack: [],
   history: [],
 })
+
+const migrateV1ToV2 = (state: unknown): SessionState => {
+  const v1 = state as {
+    sessionId: string
+    runtime: { updatedAt: string; permissionMode?: string; transcriptPath?: string }
+    current: GoalRecord | null
+    history: GoalHistoryEntry[]
+  }
+  return {
+    schemaVersion: 2,
+    sessionId: v1.sessionId,
+    runtime: {
+      updatedAt: v1.runtime.updatedAt,
+      ...(v1.runtime.permissionMode !== undefined
+        ? { permissionMode: v1.runtime.permissionMode }
+        : {}),
+      ...(v1.runtime.transcriptPath !== undefined
+        ? { transcriptPath: v1.runtime.transcriptPath }
+        : {}),
+    },
+    current: v1.current
+      ? ({ ...v1.current, tasks: [], nextTaskId: 1 } as GoalRecord)
+      : null,
+    stack: [],
+    history: v1.history.map(entry => ({ ...entry, tasks: [] }) as GoalHistoryEntry),
+  }
+}
 
 export class GoalStore {
   readonly dataDir: string
@@ -151,7 +179,15 @@ export class GoalStore {
     }
 
     try {
-      const state = sessionStateSchema.parse(JSON.parse(raw)) as SessionState
+      const parsed = JSON.parse(raw)
+      if (parsed.schemaVersion === 1) {
+        const v1 = sessionStateSchemaV1.parse(parsed)
+        if (v1.sessionId !== sessionId) {
+          throw new Error('Session identifier does not match the file key.')
+        }
+        return sessionStateSchema.parse(migrateV1ToV2(v1))
+      }
+      const state = sessionStateSchema.parse(parsed) as SessionState
       if (state.sessionId !== sessionId) {
         throw new Error('Session identifier does not match the file key.')
       }

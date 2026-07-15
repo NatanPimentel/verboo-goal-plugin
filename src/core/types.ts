@@ -41,16 +41,72 @@ export interface GoalCheckpoint {
   at: string
   summary: string
   outputTokens: number
-  evidence?: string[]
-  facts?: string[]
-  contradictions?: string[]
-  verification?: string[]
+  evidence?: string[] | undefined
+  facts?: string[] | undefined
+  contradictions?: string[] | undefined
+  verification?: string[] | undefined
+}
+
+export const TASK_TYPES = ['scout', 'worker', 'judge', 'pm'] as const
+export type TaskType = (typeof TASK_TYPES)[number]
+
+export const TASK_STATUSES = ['queued', 'active', 'blocked', 'done'] as const
+export type TaskStatus = (typeof TASK_STATUSES)[number]
+
+export const TASK_ASSIGNEES = ['scout', 'worker', 'judge', 'pm'] as const
+export type TaskAssignee = (typeof TASK_ASSIGNEES)[number]
+
+export interface TaskReceipt {
+  result: 'done' | 'blocked'
+  taskId: string
+  summary: string
+  evidence?: string[] | undefined
+  facts?: string[] | undefined
+  contradictions?: string[] | undefined
+  changedFiles?: string[] | undefined
+  commands?: string[] | undefined
+  verificationAttempts?: string[] | undefined
+  decision?:
+    | 'approved'
+    | 'rejected'
+    | 'approve_subgoal'
+    | 'reject_subgoal'
+    | 'not_complete'
+    | 'complete'
+    | undefined
+  fullOutcomeComplete?: boolean | undefined
+  rationale?: string | undefined
+}
+
+export interface GoalTask {
+  id: string
+  type: TaskType
+  assignee: TaskAssignee
+  status: TaskStatus
+  objective: string
+  inputs?: string[] | undefined
+  constraints?: string[] | undefined
+  expectedOutput?: string[] | undefined
+  allowedFiles?: string[] | undefined
+  verify?: string[] | undefined
+  stopIf?: string[] | undefined
+  receipt?: TaskReceipt | undefined
+  createdAt: string
+  updatedAt: string
+  parentSubgoalId?: string | undefined
+}
+
+export interface SubgoalReference {
+  parentGoalId: string
+  parentTaskId: string
+  depth: 1
 }
 
 export interface ActiveSubagent {
   id: string
   type: string
   startedAt: string
+  taskId?: string | undefined
 }
 
 export interface GoalRecord {
@@ -61,26 +117,29 @@ export interface GoalRecord {
   usage: GoalUsage
   createdAt: string
   updatedAt: string
-  activeSince?: string
-  finishedAt?: string
-  evidence?: string
-  blocker?: string
-  stopReason?: string
+  activeSince?: string | undefined
+  finishedAt?: string | undefined
+  evidence?: string | undefined
+  blocker?: string | undefined
+  stopReason?: string | undefined
   wrapUpIssued: boolean
   checkpoints: GoalCheckpoint[]
   activeSubagents: ActiveSubagent[]
   accountedMessageIds: string[]
-  lastAssistantId?: string
-  lastAssistantSummary?: string
-  lastStopFingerprint?: string
+  lastAssistantId?: string | undefined
+  lastAssistantSummary?: string | undefined
+  lastStopFingerprint?: string | undefined
   duplicateStopCount: number
   subagentDeferrals: number
+  tasks: GoalTask[]
+  nextTaskId: number
+  parent?: SubgoalReference | undefined
 }
 
 export interface SessionRuntime {
   updatedAt: string
-  permissionMode?: string
-  transcriptPath?: string
+  permissionMode?: string | undefined
+  transcriptPath?: string | undefined
 }
 
 export interface GoalHistoryEntry {
@@ -93,17 +152,20 @@ export interface GoalHistoryEntry {
   createdAt: string
   finishedAt: string
   recordedAt: string
-  evidence?: string
-  blocker?: string
-  stopReason?: string
+  evidence?: string | undefined
+  blocker?: string | undefined
+  stopReason?: string | undefined
   checkpoints: GoalCheckpoint[]
+  tasks: GoalTask[]
+  parent?: SubgoalReference | undefined
 }
 
 export interface SessionState {
-  schemaVersion: 1
+  schemaVersion: 2
   sessionId: string
   runtime: SessionRuntime
   current: GoalRecord | null
+  stack: GoalRecord[]
   history: GoalHistoryEntry[]
 }
 
@@ -116,13 +178,16 @@ export interface GoalView {
   usage: GoalUsage & { elapsedMs: number }
   createdAt: string
   updatedAt: string
-  finishedAt?: string
-  evidence?: string
-  blocker?: string
-  stopReason?: string
-  lastCheckpoint?: GoalCheckpoint
+  finishedAt?: string | undefined
+  evidence?: string | undefined
+  blocker?: string | undefined
+  stopReason?: string | undefined
+  lastCheckpoint?: GoalCheckpoint | undefined
   checkpoints: GoalCheckpoint[]
   activeSubagents: ActiveSubagent[]
+  tasks: GoalTask[]
+  nextTaskId: number
+  parent?: SubgoalReference | undefined
 }
 
 export interface DefaultGoalConfig {
@@ -140,10 +205,57 @@ export interface DefaultGoalConfig {
 
 export interface CreateGoalInput {
   objective: string
-  tokenBudget?: number | null
-  maxAutoTurns?: number
-  maxDurationSeconds?: number | null
-  autoContinue?: boolean
+  tokenBudget?: number | null | undefined
+  maxAutoTurns?: number | undefined
+  maxDurationSeconds?: number | null | undefined
+  autoContinue?: boolean | undefined
+  tasks?:
+    | Array<{
+        type: TaskType
+        assignee: TaskAssignee
+        objective: string
+        inputs?: string[] | undefined
+        constraints?: string[] | undefined
+        expectedOutput?: string[] | undefined
+        allowedFiles?: string[] | undefined
+        verify?: string[] | undefined
+        stopIf?: string[] | undefined
+      }>
+    | undefined
+}
+
+export interface AddTaskInput {
+  type: TaskType
+  assignee: TaskAssignee
+  objective: string
+  inputs?: string[] | undefined
+  constraints?: string[] | undefined
+  expectedOutput?: string[] | undefined
+  allowedFiles?: string[] | undefined
+  verify?: string[] | undefined
+  stopIf?: string[] | undefined
+}
+
+export interface TaskPatch {
+  status?: TaskStatus | undefined
+  assignee?: TaskAssignee | undefined
+  objective?: string | undefined
+  inputs?: string[] | undefined
+  constraints?: string[] | undefined
+  expectedOutput?: string[] | undefined
+  allowedFiles?: string[] | undefined
+  verify?: string[] | undefined
+  stopIf?: string[] | undefined
+  receipt?: TaskReceipt | undefined
+}
+
+export interface AddSubgoalInput {
+  parentTaskId: string
+  objective: string
+  tokenBudget?: number | null | undefined
+  maxAutoTurns?: number | undefined
+  maxDurationSeconds?: number | null | undefined
+  autoContinue?: boolean | undefined
 }
 
 export interface StopHookInput {

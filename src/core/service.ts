@@ -11,11 +11,14 @@ import {
 import type { GoalStore } from './store.js'
 import { estimateOutputTokens, readTranscriptUsage } from './transcript.js'
 import type {
+  AddSubgoalInput,
+  AddTaskInput,
   CreateGoalInput,
   DefaultGoalConfig,
   GoalHistoryEntry,
   GoalRecord,
   GoalStatus,
+  GoalTask,
   GoalView,
   HistoryOutcome,
   ElicitationHookInput,
@@ -27,6 +30,11 @@ import type {
   SessionState,
   StopHookInput,
   StopHookOutput,
+  SubgoalReference,
+  TaskAssignee,
+  TaskPatch,
+  TaskStatus,
+  TaskType,
 } from './types.js'
 
 const isOpen = (status: GoalStatus): boolean =>
@@ -51,6 +59,73 @@ const terminalOutcome = (status: GoalStatus): HistoryOutcome | null => {
 const cloneUsage = (goal: GoalRecord): GoalRecord['usage'] => ({
   ...goal.usage,
 })
+
+const validateTaskType = (value: string): TaskType => {
+  if (
+    value === 'scout' ||
+    value === 'worker' ||
+    value === 'judge' ||
+    value === 'pm'
+  ) {
+    return value
+  }
+  throw new GoalError('VALIDATION_ERROR', `Invalid task type: ${value}`)
+}
+
+const validateTaskAssignee = (value: string): TaskAssignee => {
+  if (
+    value === 'scout' ||
+    value === 'worker' ||
+    value === 'judge' ||
+    value === 'pm'
+  ) {
+    return value
+  }
+  throw new GoalError('VALIDATION_ERROR', `Invalid task assignee: ${value}`)
+}
+
+const validateTaskStatus = (value: string): TaskStatus => {
+  if (
+    value === 'queued' ||
+    value === 'active' ||
+    value === 'blocked' ||
+    value === 'done'
+  ) {
+    return value
+  }
+  throw new GoalError('VALIDATION_ERROR', `Invalid task status: ${value}`)
+}
+
+const formatTaskId = (index: number): string =>
+  `T${String(index).padStart(3, '0')}`
+
+const createTask = (
+  input: AddTaskInput,
+  id: string,
+  now: string,
+): GoalTask => ({
+  id,
+  type: validateTaskType(input.type),
+  assignee: validateTaskAssignee(input.assignee),
+  status: 'queued',
+  objective: validateText('objective', input.objective),
+  ...(input.inputs?.length ? { inputs: input.inputs.map(s => validateText('inputs', s)) } : {}),
+  ...(input.constraints?.length ? { constraints: input.constraints.map(s => validateText('constraints', s)) } : {}),
+  ...(input.expectedOutput?.length ? { expectedOutput: input.expectedOutput.map(s => validateText('expectedOutput', s)) } : {}),
+  ...(input.allowedFiles?.length ? { allowedFiles: input.allowedFiles.map(s => validateText('allowedFiles', s)) } : {}),
+  ...(input.verify?.length ? { verify: input.verify.map(s => validateText('verify', s)) } : {}),
+  ...(input.stopIf?.length ? { stopIf: input.stopIf.map(s => validateText('stopIf', s)) } : {}),
+  createdAt: now,
+  updatedAt: now,
+})
+
+const findTask = (goal: GoalRecord, taskId: string): GoalTask => {
+  const task = goal.tasks.find(t => t.id === taskId)
+  if (!task) {
+    throw new GoalError('TASK_NOT_FOUND', `Task ${taskId} not found.`)
+  }
+  return task
+}
 
 export class GoalService {
   private readonly store: GoalStore
@@ -116,6 +191,15 @@ export class GoalService {
         accountedMessageIds: [],
         duplicateStopCount: 0,
         subagentDeferrals: 0,
+        tasks: [],
+        nextTaskId: 1,
+      }
+      if (input.tasks?.length) {
+        for (const taskInput of input.tasks.slice(0, 999)) {
+          const task = createTask(taskInput, formatTaskId(goal.nextTaskId), now)
+          goal.tasks.push(task)
+          goal.nextTaskId += 1
+        }
       }
       if (!startsPaused) goal.activeSince = now
       else goal.stopReason = 'Created while the session was in Plan mode.'
@@ -204,6 +288,30 @@ export class GoalService {
       if (evidence !== undefined) goal.evidence = evidence
       if (blocker !== undefined) goal.blocker = blocker
       this.archiveGoal(state, goal, status, now)
+      if (state.stack.length > 0) {
+        const parent = state.stack.pop()
+        state.current = parent ?? null
+        if (state.current && goal.parent) {
+          const task = state.current.tasks.find(
+            t => t.id === goal.parent?.parentTaskId,
+          )
+          if (task) {
+            task.status = status === 'complete' ? 'done' : 'blocked'
+            task.receipt = {
+              result: status === 'complete' ? 'done' : 'blocked',
+              taskId: task.id,
+              summary:
+                status === 'complete'
+                  ? `Subgoal completed: ${goal.objective}`
+                  : `Subgoal blocked: ${goal.objective}`,
+            }
+            task.updatedAt = now
+          }
+          state.current.updatedAt = now
+        }
+      } else {
+        state.current = null
+      }
       return this.toView(goal, validSessionId)
     })
   }
@@ -222,9 +330,240 @@ export class GoalService {
         this.archiveGoal(state, goal, 'cleared', now)
       }
       state.current = null
+      state.stack = []
       state.runtime.updatedAt = this.nowIso()
       return null
     })
+  }
+
+  async addTask(sessionId: string, input: AddTaskInput): Promise<GoalView> {
+    const validSessionId = validateSessionId(sessionId)
+    return this.store.update(validSessionId, state => {
+      const goal = requireOpenGoal(state)
+      if (goal.tasks.length >= 999) {
+        throw new GoalError(
+          'TASK_LIMIT',
+          'This goal already has the maximum of 999 tasks.',
+        )
+      }
+      const now = this.nowIso()
+      const task = createTask(input, formatTaskId(goal.nextTaskId), now)
+      goal.tasks.push(task)
+      goal.nextTaskId += 1
+      goal.updatedAt = now
+      return this.toView(goal, validSessionId)
+    })
+  }
+
+  async updateTask(
+    sessionId: string,
+    taskId: string,
+    patch: TaskPatch,
+  ): Promise<GoalView> {
+    const validSessionId = validateSessionId(sessionId)
+    const validTaskId = taskId.trim()
+    if (!validTaskId) {
+      throw new GoalError('INVALID_TASK_ID', 'task_id is required.')
+    }
+    return this.store.update(validSessionId, state => {
+      const goal = requireOpenGoal(state)
+      const task = findTask(goal, validTaskId)
+      const now = this.nowIso()
+
+      if (patch.status !== undefined) {
+        const newStatus = validateTaskStatus(patch.status)
+        if (task.status === 'done' && newStatus !== 'done') {
+          throw new GoalError(
+            'INVALID_TASK_TRANSITION',
+            'Cannot reopen a done task.',
+          )
+        }
+        task.status = newStatus
+      }
+      if (patch.assignee !== undefined) {
+        task.assignee = validateTaskAssignee(patch.assignee)
+      }
+      if (patch.objective !== undefined) {
+        task.objective = validateText('objective', patch.objective)
+      }
+      if (patch.inputs !== undefined) {
+        task.inputs = patch.inputs.map(s => validateText('inputs', s))
+      }
+      if (patch.constraints !== undefined) {
+        task.constraints = patch.constraints.map(s => validateText('constraints', s))
+      }
+      if (patch.expectedOutput !== undefined) {
+        task.expectedOutput = patch.expectedOutput.map(s => validateText('expectedOutput', s))
+      }
+      if (patch.allowedFiles !== undefined) {
+        task.allowedFiles = patch.allowedFiles.map(s => validateText('allowedFiles', s))
+      }
+      if (patch.verify !== undefined) {
+        task.verify = patch.verify.map(s => validateText('verify', s))
+      }
+      if (patch.stopIf !== undefined) {
+        task.stopIf = patch.stopIf.map(s => validateText('stopIf', s))
+      }
+      if (patch.receipt !== undefined) {
+        task.receipt = patch.receipt
+        if (patch.receipt.result === 'done') {
+          task.status = 'done'
+        } else if (patch.receipt.result === 'blocked') {
+          task.status = 'blocked'
+        }
+      }
+      task.updatedAt = now
+      goal.updatedAt = now
+      return this.toView(goal, validSessionId)
+    })
+  }
+
+  async getTasks(
+    sessionId: string,
+    filters?: { status?: TaskStatus; type?: TaskType; assignee?: TaskAssignee },
+  ): Promise<GoalTask[]> {
+    const validSessionId = validateSessionId(sessionId)
+    const state = await this.store.read(validSessionId)
+    const goal = state?.current
+    if (!goal) throw new GoalError('NO_ACTIVE_GOAL', 'This session has no goal.')
+    return goal.tasks
+      .filter(task => {
+        if (filters?.status && task.status !== filters.status) return false
+        if (filters?.type && task.type !== filters.type) return false
+        if (filters?.assignee && task.assignee !== filters.assignee) return false
+        return true
+      })
+      .map(task => ({ ...task }))
+  }
+
+  async assignTask(
+    sessionId: string,
+    taskId: string,
+    assignee: TaskAssignee,
+  ): Promise<GoalView> {
+    return this.updateTask(sessionId, taskId, { assignee })
+  }
+
+  async getActiveTask(sessionId: string): Promise<GoalTask | null> {
+    const validSessionId = validateSessionId(sessionId)
+    const state = await this.store.read(validSessionId)
+    const goal = state?.current
+    if (!goal) throw new GoalError('NO_ACTIVE_GOAL', 'This session has no goal.')
+    const active = goal.tasks.find(t => t.status === 'active')
+    if (active) return { ...active }
+    const next = goal.tasks.find(t => t.status === 'queued')
+    return next ? { ...next } : null
+  }
+
+  async addSubgoal(
+    sessionId: string,
+    input: AddSubgoalInput,
+  ): Promise<GoalView> {
+    const validSessionId = validateSessionId(sessionId)
+    const parentTaskId = input.parentTaskId.trim()
+    if (!parentTaskId) {
+      throw new GoalError('INVALID_TASK_ID', 'parent_task_id is required.')
+    }
+    const objective = validateText('objective', input.objective)
+    const limits = normalizeGoalLimits(input, this.defaults)
+
+    return this.store.update(validSessionId, state => {
+      const parent = requireOpenGoal(state)
+      const parentTask = findTask(parent, parentTaskId)
+      if (parentTask.status === 'done') {
+        throw new GoalError(
+          'INVALID_TASK_TRANSITION',
+          'Cannot spawn a subgoal from a done task.',
+        )
+      }
+      if (parent.parent !== undefined) {
+        throw new GoalError(
+          'DEPTH_EXCEEDED',
+          'Subgoals are limited to depth 1.',
+        )
+      }
+
+      const now = this.nowIso()
+      const startsPaused = isPlanMode(state.runtime.permissionMode)
+      const parentRef: SubgoalReference = {
+        parentGoalId: parent.id,
+        parentTaskId,
+        depth: 1,
+      }
+      const subgoal: GoalRecord = {
+        id: randomUUID(),
+        objective,
+        status: startsPaused ? 'paused' : 'active',
+        limits,
+        usage: {
+          tokens: 0,
+          autoTurns: 0,
+          accumulatedActiveMs: 0,
+          noProgressTurns: 0,
+          hookFailures: 0,
+          unmeteredTurns: 0,
+        },
+        createdAt: now,
+        updatedAt: now,
+        wrapUpIssued: false,
+        checkpoints: [],
+        activeSubagents: [],
+        accountedMessageIds: [],
+        duplicateStopCount: 0,
+        subagentDeferrals: 0,
+        tasks: [],
+        nextTaskId: 1,
+        parent: parentRef,
+      }
+      if (!startsPaused) subgoal.activeSince = now
+      else subgoal.stopReason = 'Created while the session was in Plan mode.'
+
+      parentTask.parentSubgoalId = subgoal.id
+      parentTask.status = 'active'
+      parentTask.updatedAt = now
+      parent.updatedAt = now
+
+      state.stack.push(parent)
+      state.current = subgoal
+      state.runtime.updatedAt = now
+      return this.toView(subgoal, validSessionId)
+    })
+  }
+
+  async getSubgoal(sessionId: string, subgoalId: string): Promise<GoalView | null> {
+    const validSessionId = validateSessionId(sessionId)
+    const state = await this.store.read(validSessionId)
+    if (!state) return null
+    if (state.current?.id === subgoalId && state.current.parent) {
+      return this.toView(state.current, validSessionId)
+    }
+    const stacked = state.stack.find(g => g.id === subgoalId && g.parent)
+    if (stacked) return this.toView(stacked, validSessionId)
+    const archived = state.history.find(h => h.goalId === subgoalId && h.parent)
+    if (!archived) return null
+    const reconstructed: GoalRecord = {
+      id: archived.goalId,
+      objective: archived.objective,
+      status: archived.status,
+      limits: archived.limits,
+      usage: archived.usage,
+      createdAt: archived.createdAt,
+      updatedAt: archived.recordedAt,
+      finishedAt: archived.finishedAt,
+      wrapUpIssued: false,
+      checkpoints: archived.checkpoints,
+      activeSubagents: [],
+      accountedMessageIds: [],
+      duplicateStopCount: 0,
+      subagentDeferrals: 0,
+      tasks: archived.tasks,
+      nextTaskId: archived.tasks.length + 1,
+      ...(archived.evidence ? { evidence: archived.evidence } : {}),
+      ...(archived.blocker ? { blocker: archived.blocker } : {}),
+      ...(archived.stopReason ? { stopReason: archived.stopReason } : {}),
+      ...(archived.parent ? { parent: archived.parent } : {}),
+    }
+    return this.toView(reconstructed, validSessionId)
   }
 
   async handleUserPrompt(input: {
@@ -288,6 +627,7 @@ export class GoalService {
     session_id: string
     agent_id: string
     agent_type: string
+    task_id?: string
   }): Promise<void> {
     const validSessionId = validateSessionId(input.session_id)
     await this.store.update(validSessionId, state => {
@@ -300,6 +640,7 @@ export class GoalService {
           id: input.agent_id,
           type: input.agent_type,
           startedAt: now,
+          ...(input.task_id ? { taskId: input.task_id } : {}),
         })
       }
       goal.updatedAt = now
@@ -309,6 +650,7 @@ export class GoalService {
   async handleSubagentStop(input: {
     session_id: string
     agent_id: string
+    task_id?: string
   }): Promise<void> {
     const validSessionId = validateSessionId(input.session_id)
     await this.store.update(validSessionId, state => {
@@ -785,10 +1127,12 @@ export class GoalService {
       finishedAt,
       recordedAt: this.nowIso(),
       checkpoints: goal.checkpoints.map(checkpoint => ({ ...checkpoint })),
+      tasks: goal.tasks.map(task => ({ ...task })),
     }
     if (goal.evidence !== undefined) entry.evidence = goal.evidence
     if (goal.blocker !== undefined) entry.blocker = goal.blocker
     if (goal.stopReason !== undefined) entry.stopReason = goal.stopReason
+    if (goal.parent !== undefined) entry.parent = goal.parent
 
     const existing = state.history.findIndex(item => item.goalId === goal.id)
     if (existing >= 0) state.history.splice(existing, 1)
@@ -834,11 +1178,14 @@ export class GoalService {
       updatedAt: goal.updatedAt,
       checkpoints: goal.checkpoints.map(c => ({ ...c })),
       activeSubagents: goal.activeSubagents.map(agent => ({ ...agent })),
+      tasks: goal.tasks.map(t => ({ ...t })),
+      nextTaskId: goal.nextTaskId,
     }
     if (goal.finishedAt !== undefined) view.finishedAt = goal.finishedAt
     if (goal.evidence !== undefined) view.evidence = goal.evidence
     if (goal.blocker !== undefined) view.blocker = goal.blocker
     if (goal.stopReason !== undefined) view.stopReason = goal.stopReason
+    if (goal.parent !== undefined) view.parent = goal.parent
     const checkpoint = goal.checkpoints.at(-1)
     if (checkpoint) view.lastCheckpoint = { ...checkpoint }
     return view

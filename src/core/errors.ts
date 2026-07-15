@@ -8,6 +8,11 @@ export type GoalErrorCode =
   | 'STATE_UNAVAILABLE'
   | 'LOCK_TIMEOUT'
   | 'INTERNAL_ERROR'
+  | 'TASK_LIMIT'
+  | 'INVALID_TASK_ID'
+  | 'DEPTH_EXCEEDED'
+  | 'TASK_NOT_FOUND'
+  | 'INVALID_TASK_TRANSITION'
 
 export class GoalError extends Error {
   readonly code: GoalErrorCode

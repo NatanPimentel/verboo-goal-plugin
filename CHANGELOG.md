@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Add task board with `scout`, `worker`, `judge`, and `pm` task types and `queued`/`active`/`blocked`/`done` statuses.
+- Add MCP tools `add_task`, `update_task`, `get_tasks`, `assign_task`, `get_active_task`, `add_subgoal`, and `get_subgoal`.
+- Add depth-1 subgoals as child `GoalRecord`s with `parentGoalId`, `parentTaskId`, and a parent goal stack.
+- Add structured task receipts with evidence, facts, contradictions, changed files, commands, verification attempts, and decisions.
+- Add PM loop guidance to continuation prompts so the model dispatches matching agents against the active task.
+- Add agent definitions for `pm`, `scout`, `worker`, and `judge` in `agents/`.
+- Add schema v1 to v2 migration with `tasks`, `nextTaskId`, `parent`, and `stack` fields.
+- Add `.mcp.dev.json` and convenience scripts for local development without requiring `CLAUDE_PLUGIN_ROOT`.
+
 ## 0.1.0
 
 - Add exact `/goal` command and eight scoped MCP tools.

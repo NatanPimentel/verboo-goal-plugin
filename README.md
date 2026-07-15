@@ -19,6 +19,21 @@ Restart Verboo after installation. During local development, load the checkout d
 verboo --plugin-dir /path/to/verboo-goal-plugin
 ```
 
+If you open Verboo directly inside the repository without `--plugin-dir`, you may see a diagnostic warning that `${CLAUDE_PLUGIN_ROOT}` is missing. That variable is only defined when the plugin is loaded as a plugin. To work on the MCP server without installing it, use the checked-in development config:
+
+```bash
+verboo --mcp-config .mcp.dev.json
+```
+
+Or use the convenience scripts:
+
+```bash
+bun run dev:plugin   # verboo --plugin-dir .
+bun run dev:mcp      # verboo --mcp-config .mcp.dev.json
+```
+
+The production `.mcp.json` and `hooks/hooks.json` keep the literal `${CLAUDE_PLUGIN_ROOT}` placeholder because the plugin contract requires it.
+
 ## Use
 
 ```text
@@ -115,6 +130,8 @@ bun run validate:plugin-offline
 verboo plugin validate .
 verboo plugin validate .claude-plugin/plugin.json
 ```
+
+When running `bun run check`, the build regenerates `dist/` and all validators run against the committed contract. The `.mcp.dev.json` file is intentionally not part of the plugin contract; it exists only for local MCP development.
 
 The official Verboo 0.12.0 validator currently requires an authenticated CLI even though validation is local. CI therefore runs the checked-in offline contract validator; run the two official commands above as an authenticated release preflight.
 
